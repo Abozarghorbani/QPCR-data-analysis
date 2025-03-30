@@ -1,0 +1,98 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Input file path
+file_path = r"/content/realdata.xlsx"
+
+# Read the data
+df = pd.read_excel(file_path)
+
+# Drop rows with missing values (i.e., repeats that don't have a CT value)
+df = df.dropna(subset=["Target CT", "Internal control CT"])
+
+# Calculate ΔCT for each replicate
+df["ΔCT"] = df["Target CT"] - df["Internal control CT"]
+
+# Extract the ΔCT value for the control group
+control_dct_values = df[df["Treatment"] == "Control"]["ΔCT"]
+
+# Calculate the mean ΔCT for the control group
+control_mean_dct = control_dct_values.mean()
+
+# Calculate ΔΔCT for each replicate
+df["ΔΔCT"] = df["ΔCT"] - control_mean_dct
+
+# Calculate the mean and standard deviation of ΔΔCT for each treatment
+fold_change_data = df.groupby("Treatment").agg(
+    mean_ΔΔCT=("ΔΔCT", "mean"),  # Mean of ΔΔCT
+    std_ΔΔCT=("ΔΔCT", "std")     # Standard deviation of ΔΔCT
+).reset_index()
+
+# Check the standard deviation and replace NaN values with zero
+fold_change_data["std_ΔΔCT"] = fold_change_data["std_ΔΔCT"].fillna(0)
+
+# Calculate the Fold Change for each replicate
+df["Fold Change"] = 2 ** (-df["ΔΔCT"])
+
+# Apply condition: if Fold Change is less than 1, change its value to -1/Fold Change
+df["Fold Change"] = df["Fold Change"].apply(lambda x: -1 / x if x < 1 else x)
+
+# Calculate the mean Fold Change for each treatment
+fold_change_data["Fold Change"] = df.groupby("Treatment")["Fold Change"].mean().values
+
+# Output file path for saving results
+output_path = file_path.replace(".xlsx", "_foldchange.xlsx")
+fold_change_data.to_excel(output_path, index=False)
+
+# File paths for saving the plots
+bar_chart_path = file_path.replace(".xlsx", "_bar_chart.png")
+scatter_plot_path = file_path.replace(".xlsx", "_scatter_plot.png")
+
+# Set font properties
+plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams["font.size"] = 14
+
+# Plot the bar chart with negative values shown
+plt.figure(figsize=(8, 6))
+plt.bar(
+    fold_change_data["Treatment"],
+    fold_change_data["Fold Change"],
+    yerr=fold_change_data["std_ΔΔCT"],
+    capsize=5, color="skyblue", edgecolor="black"
+)
+plt.xlabel("Treatment", fontsize=14)
+plt.ylabel("Fold Change", fontsize=14)
+plt.title("Fold Change for Each Treatment (with Error Bars)", fontsize=14)
+plt.xticks(rotation=45)
+plt.ylim(min(fold_change_data["Fold Change"]) * 1.2, max(fold_change_data["Fold Change"]) * 1.2)  # Adjust Y-axis scale to show negative values
+plt.axhline(0, color='black', linewidth=1)  # Add a line at 0 for better differentiation
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.savefig(bar_chart_path, dpi=300, bbox_inches="tight")
+plt.close()
+
+# Plot the scatter plot with negative values shown
+plt.figure(figsize=(8, 6))
+colors = ["red", "blue", "green", "purple", "orange", "brown"]
+treatments = fold_change_data["Treatment"].unique()
+
+for i, treatment in enumerate(treatments):
+    subset = fold_change_data[fold_change_data["Treatment"] == treatment]
+    plt.scatter(
+        subset["mean_ΔΔCT"], subset["Fold Change"],
+        color=colors[i], edgecolors="black", s=100, label=treatment
+    )
+
+plt.xlabel("mean_ΔΔCT", fontsize=14)
+plt.ylabel("Fold Change", fontsize=14)
+plt.title("Scatter Plot of mean_ΔΔCT vs. Fold Change", fontsize=14)
+plt.axhline(0, color='black', linewidth=1)  # Add a line at 0 for better differentiation
+plt.grid(True, linestyle="--", alpha=0.7)
+plt.legend(title="Treatment")
+plt.ylim(min(fold_change_data["Fold Change"]) * 1.2, max(fold_change_data["Fold Change"]) * 1.2)  # Adjust Y-axis scale to show negative values
+plt.savefig(scatter_plot_path, dpi=300, bbox_inches="tight")
+plt.close()
+
+print(f"✅ The Fold Change results have been saved in the following file:\n{output_path}")
+print(f"📊 The Bar Chart (with standard error) has been saved in the following path:\n{bar_chart_path}")
+print(f"📉 The Scatter Plot has been saved in the following path:\n{scatter_plot_path}")
